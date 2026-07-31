@@ -91,6 +91,13 @@ async function fetchCuratedCards(pack: PackDefinition): Promise<CardData[]> {
       if (!uris?.large) continue;
       cards.push(toCardData(hit, ref.foil ?? hit.rarity === 'mythic', uris));
     }
+    // A partial resolve is fine for a fallback list — 13 real cards beat a
+    // mock pack. But a fixed-contents pack promises an exact list, and the
+    // loop above skips refs silently, so a renamed card or a missing image
+    // would quietly shorten the pack. Take the complete mock pack instead.
+    if (pack.fixedContents && cards.length !== pack.cards.length) {
+      throw new Error(`fixed contents resolved ${cards.length}/${pack.cards.length} cards`);
+    }
     if (cards.length === 0) throw new Error('no cards resolved');
     return cards;
   } catch (err) {
