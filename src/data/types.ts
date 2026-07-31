@@ -55,6 +55,21 @@ export interface PackDefinition {
   cards: PackCardRef[];
   /** Future packs render in the menu but can't be opened yet. */
   comingSoon?: boolean;
+  /**
+   * Pin the contents to `cards`, in order. Skips the randomized booster roll
+   * (booster.ts) and the offline shuffle, so every open of this pack shows
+   * exactly the same cards in exactly the same sequence — what a demo needs.
+   */
+  fixedContents?: boolean;
+  /**
+   * Render revealed cards through the relief pipeline: normal/depth/roughness
+   * maps derived from each card image (fx/relief.ts), lit and displaced by the
+   * pointer in WebGL (fx/reliefRenderer.ts). Degrades to the flat card image
+   * wherever WebGL2 or CORS isn't available.
+   */
+  relief?: boolean;
+  /** Flags the pack as a tech demo in the menu rail. */
+  demo?: boolean;
 }
 
 export interface PackCardRef {

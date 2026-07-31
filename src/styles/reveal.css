@@ -125,9 +125,46 @@
   pointer-events: auto;
 }
 
+.reveal-hud {
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-row {
+  display: flex;
+  gap: 10px;
+}
+
 .skip-btn {
   padding: 10px 22px;
   font-size: 12px;
+}
+
+/* ---------- relief demo HUD ---------- */
+/* Both only exist for packs that opt into the relief pipeline. */
+.maps-btn,
+.relief-note {
+  display: none;
+}
+
+.relief-pack .maps-btn {
+  display: inline-block;
+  padding: 10px 22px;
+  font-size: 12px;
+  min-width: 130px;
+}
+
+.relief-pack .relief-note {
+  display: block;
+  max-width: min(92vw, 460px);
+  margin: 0;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: rgba(226, 232, 255, 0.62);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
 }
 
 /* ---------- summary ---------- */

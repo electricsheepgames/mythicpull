@@ -138,6 +138,20 @@
   color: #e6dcff;
 }
 
+/* Tech-demo packs (relief pipeline) get their own badge. */
+.chip-demo {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: linear-gradient(160deg, #4fd8ff, #b061ff);
+  color: #08131c;
+}
+
 .open-btn {
   min-width: 220px;
 }

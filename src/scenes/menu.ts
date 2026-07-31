@@ -70,6 +70,7 @@ export function menuScene(opts: { onOpenPack: (pack: PackDefinition) => void }):
       <span class="chip-code">${pack.setCode.toUpperCase()}</span>
       <span class="chip-name">${pack.name}</span>
       ${pack.comingSoon ? '<span class="chip-soon">SOON</span>' : ''}
+      ${pack.demo ? '<span class="chip-demo">DEMO</span>' : ''}
     `;
     b.style.setProperty('--accent', pack.accent);
     if (pack === selected) b.classList.add('active');

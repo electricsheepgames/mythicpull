@@ -213,8 +213,10 @@ export function mockCardsFor(pack: PackDefinition): CardData[] {
     : Object.keys(MOCK_META).map((name) => ({ name }));
   // Offline there's no set pool to draw from, so contents can't vary — but
   // the reveal order still should: shuffle within each rarity group, keeping
-  // the rarity ramp intact and the marked foil(s) last.
-  return shuffleWithinRarity(refs).map((ref, i) => {
+  // the rarity ramp intact and the marked foil(s) last. Packs that declare
+  // `fixedContents` opt out entirely and keep the registry order.
+  const ordered = pack.fixedContents ? refs : shuffleWithinRarity(refs);
+  return ordered.map((ref, i) => {
     // Registry rarity/color hints beat MOCK_META so any pack renders sensibly
     // offline; unhinted cards fall back to a name-hashed color for variety.
     const meta = MOCK_META[ref.name];

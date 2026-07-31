@@ -56,6 +56,9 @@ function toCardData(hit: ScryfallCard, foil: boolean, uris: Record<string, strin
  */
 export async function fetchPackCards(pack: PackDefinition): Promise<CardData[]> {
   if (FORCE_MOCK) return mockCardsFor(pack);
+  // Demo packs pin their contents — no roll, no shuffle, same eight cards
+  // every time so the thing being demonstrated is the only variable.
+  if (pack.fixedContents) return fetchCuratedCards(pack);
   try {
     const pool = await fetchSetPool(pack.setCode);
     return generateBooster(pool).map(({ card, foil }) => toCardData(card, foil, imageUris(card)!));
