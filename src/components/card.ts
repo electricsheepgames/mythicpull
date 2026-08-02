@@ -1,4 +1,6 @@
 import type { CardData } from '../data/types';
+import { deriveReliefMaps, type ReliefMaps } from '../fx/relief';
+import { createReliefSurface, reliefSupported, type ReliefState, type ReliefSurface } from '../fx/reliefRenderer';
 
 /**
  * Builds a 3D card: front (Scryfall image + holo layers) and back. The holo
@@ -7,6 +9,11 @@ import type { CardData } from '../data/types';
  *   --mx / --my   pointer position over the card, in %
  *   --posx/--posy background offset for the rainbow bands, in %
  *   --holo        overall foil intensity 0..1
+ *
+ * Cards built with `{ relief: true }` additionally get the WebGL relief
+ * pipeline layered over the image: depth/normal/roughness maps derived from
+ * the card art, lit and displaced by the pointer (see fx/relief.ts). It is
+ * opt-in per pack, and every step degrades back to the plain `<img>`.
  */
 
 export interface CardEl {
@@ -14,9 +21,25 @@ export interface CardEl {
   data: CardData;
   /** Feed tilt (deg) + normalized pointer (0..1) into the holo layers. */
   setShine(rx: number, ry: number, px: number, py: number): void;
+  /** Relief handle, or null when the card didn't opt in / WebGL2 is missing. */
+  relief: ReliefHandle | null;
 }
 
-export function buildCard(data: CardData, backUrl: string): CardEl {
+export interface ReliefHandle {
+  /**
+   * Derive the maps and upload them. Idempotent and safe to call early —
+   * resolves false when the pipeline can't run for this card, in which case
+   * the plain image stays visible.
+   */
+  ready(): Promise<boolean>;
+  /** Put the shared relief canvas over this card's face. */
+  mount(): void;
+  unmount(): void;
+  render(state: ReliefState): void;
+  dispose(): void;
+}
+
+export function buildCard(data: CardData, backUrl: string, opts?: { relief?: boolean }): CardEl {
   const root = document.createElement('div');
   root.className = `card3d rarity-${data.rarity}${data.foil ? ' is-foil' : ''}`;
 
@@ -28,14 +51,22 @@ export function buildCard(data: CardData, backUrl: string): CardEl {
   const front = document.createElement('div');
   front.className = 'card-face card-front';
 
+  const useRelief = !!opts?.relief && reliefSupported();
+
   const img = document.createElement('img');
   img.className = 'card-img';
   img.alt = data.name;
   img.draggable = false;
   img.decoding = 'async';
+  // The relief pass reads the image back off a canvas and uploads it as a
+  // texture — both need CORS. Scryfall's image CDN sends
+  // `access-control-allow-origin: *`, and mock art is a data: URL.
+  if (useRelief) img.crossOrigin = 'anonymous';
+  let imgFailed = false;
   img.src = data.imageLarge;
   img.onerror = () => {
     // Last-resort placeholder so a dead URL never shows a broken image icon.
+    imgFailed = true;
     front.classList.add('card-img-failed');
     img.remove();
     const ph = document.createElement('div');
@@ -73,5 +104,71 @@ export function buildCard(data: CardData, backUrl: string): CardEl {
   }
   setShine(0, 0, 0.5, 0.5);
 
-  return { root, data, setShine };
+  const relief = useRelief ? buildReliefHandle(root, front, img, data, () => imgFailed) : null;
+
+  return { root, data, setShine, relief };
+}
+
+function buildReliefHandle(
+  root: HTMLElement,
+  front: HTMLElement,
+  img: HTMLImageElement,
+  data: CardData,
+  failed: () => boolean,
+): ReliefHandle {
+  let maps: ReliefMaps | null = null;
+  let surface: ReliefSurface | null = null;
+  let pending: Promise<boolean> | null = null;
+  let wantsMount = false;
+  let disposed = false;
+
+  async function build(): Promise<boolean> {
+    await settled(img);
+    if (disposed || failed()) return false;
+    const t0 = performance.now();
+    maps = deriveReliefMaps(img);
+    if (!maps) {
+      console.warn(`[relief] could not read "${data.name}" — falling back to the flat image`);
+      return false;
+    }
+    surface = createReliefSurface(img, maps, { foil: data.foil });
+    if (!surface) return false;
+    root.classList.add('has-relief');
+    console.debug(`[relief] "${data.name}" maps derived in ${(performance.now() - t0).toFixed(1)}ms`);
+    if (wantsMount) surface.mount(front);
+    return true;
+  }
+
+  return {
+    ready() {
+      if (!pending) pending = build();
+      return pending;
+    },
+    mount() {
+      wantsMount = true;
+      surface?.mount(front);
+    },
+    unmount() {
+      wantsMount = false;
+      surface?.unmount();
+    },
+    render(state) {
+      surface?.render(state);
+    },
+    dispose() {
+      disposed = true;
+      surface?.dispose();
+      surface = null;
+      maps = null;
+    },
+  };
+}
+
+/** Resolve once the image has pixels we can read (or immediately, if it failed). */
+function settled(img: HTMLImageElement): Promise<void> {
+  if (img.complete) return Promise.resolve();
+  return new Promise((resolve) => {
+    img.addEventListener('load', () => resolve(), { once: true });
+    img.addEventListener('error', () => resolve(), { once: true });
+  });
 }

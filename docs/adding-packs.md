@@ -127,7 +127,38 @@ you touch `packs.ts`.
 `npm run build` typechecks the registry — wrong rarity strings or color
 letters fail compilation.
 
-## 5. How randomized contents work
+## 5. Fixed-contents and relief demo packs
+
+Three optional flags turn a registry entry into a demo bench rather than a
+booster. The `relief` pack in `packs.ts` uses all three:
+
+```ts
+fixedContents: true,  // pin `cards`, in order — no booster roll, no shuffle
+relief: true,         // render reveals through the WebGL relief pipeline
+demo: true,           // DEMO badge on the menu chip
+```
+
+- **`fixedContents`** short-circuits both sources of variation: online,
+  `fetchPackCards()` skips `generateBooster()` and resolves the curated list
+  directly; offline, `mockCardsFor()` skips the within-rarity shuffle. Every
+  open yields the same cards in the same order.
+- **`relief`** routes each revealed card through
+  [`src/fx/relief.ts`](../src/fx/relief.ts) and
+  [`src/fx/reliefRenderer.ts`](../src/fx/reliefRenderer.ts): depth, normal
+  and roughness maps are derived on the CPU from the card image itself, then
+  a WebGL2 shader does relief (parallax-occlusion) mapping plus Blinn-Phong
+  shading with a point light parked at the pointer. Moving the mouse relights
+  *and* displaces the print; the reveal HUD gains a **Maps** button that
+  cycles the shader's output between the lit result and each raw channel.
+  Everything degrades to the flat card image if WebGL2 is missing, the image
+  is cross-origin without CORS, or map derivation fails.
+- **`demo`** is cosmetic — it badges the chip in the menu rail.
+
+Map derivation costs tens of milliseconds per card and runs lazily: the first
+two cards are derived under cover of the pack burst, then each flip warms the
+next one.
+
+## 6. How randomized contents work
 
 [`src/data/booster.ts`](../src/data/booster.ts) fetches the set's full card
 pool once per session (`/cards/search?q=e:<setCode> is:booster -t:basic`,

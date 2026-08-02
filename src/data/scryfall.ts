@@ -56,6 +56,9 @@ function toCardData(hit: ScryfallCard, foil: boolean, uris: Record<string, strin
  */
 export async function fetchPackCards(pack: PackDefinition): Promise<CardData[]> {
   if (FORCE_MOCK) return mockCardsFor(pack);
+  // Demo packs pin their contents — no roll, no shuffle, same eight cards
+  // every time so the thing being demonstrated is the only variable.
+  if (pack.fixedContents) return fetchCuratedCards(pack);
   try {
     const pool = await fetchSetPool(pack.setCode);
     return generateBooster(pool).map(({ card, foil }) => toCardData(card, foil, imageUris(card)!));
@@ -87,6 +90,13 @@ async function fetchCuratedCards(pack: PackDefinition): Promise<CardData[]> {
       const uris = imageUris(hit);
       if (!uris?.large) continue;
       cards.push(toCardData(hit, ref.foil ?? hit.rarity === 'mythic', uris));
+    }
+    // A partial resolve is fine for a fallback list — 13 real cards beat a
+    // mock pack. But a fixed-contents pack promises an exact list, and the
+    // loop above skips refs silently, so a renamed card or a missing image
+    // would quietly shorten the pack. Take the complete mock pack instead.
+    if (pack.fixedContents && cards.length !== pack.cards.length) {
+      throw new Error(`fixed contents resolved ${cards.length}/${pack.cards.length} cards`);
     }
     if (cards.length === 0) throw new Error('no cards resolved');
     return cards;

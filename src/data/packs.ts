@@ -175,6 +175,35 @@ export const PACKS: PackDefinition[] = [
       { name: 'Atraxa, Grand Unifier', foil: true },
     ],
   },
+  {
+    id: 'relief',
+    name: 'Relief Demo',
+    setCode: 'fdn',
+    tagline: 'Tech demo · 8 fixed cards',
+    accent: '#4fd8ff',
+    accentSecondary: '#b061ff',
+    keyArt: 'scryfall-art:Shivan Dragon:fdn',
+    // A test bench, not a booster: `fixedContents` pins the list below so the
+    // same eight cards come out in the same order every single open, and
+    // `relief` routes them through the depth/normal/roughness pipeline. Cards
+    // are drawn from the Foundations sampler above (default printings, all
+    // with hand-drawn offline art in mock.ts) so the demo behaves identically
+    // online and under `?mock=1`.
+    fixedContents: true,
+    relief: true,
+    demo: true,
+    cards: [
+      { name: 'Llanowar Elves' },
+      { name: 'Shock' },
+      { name: 'Divination' },
+      { name: 'Pacifism' },
+      { name: 'Counterspell' },
+      { name: 'Serra Angel' },
+      { name: 'Shivan Dragon' },
+      // Foil last, so the shader's iridescence closes the demo out.
+      { name: 'Atraxa, Grand Unifier', foil: true },
+    ],
+  },
 ];
 
 export function getPack(id: string): PackDefinition | undefined {

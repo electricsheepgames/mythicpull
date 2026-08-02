@@ -6,6 +6,7 @@ import { buildCard, type CardEl } from '../components/card';
 import { Spring, onTick } from '../fx/spring';
 import { burst, rainbowBurst, tearSparks } from '../fx/particles';
 import { tearCrackle, ripOpen, cardWhoosh, flipSnap, rareShimmer, uiBlip } from '../fx/sound';
+import { RELIEF_DEBUG_MODES, reliefSupported, setReliefDebug, type ReliefDebug } from '../fx/reliefRenderer';
 
 /**
  * The pack-cracking ritual, in four phases:
@@ -16,6 +17,10 @@ import { tearCrackle, ripOpen, cardWhoosh, flipSnap, rareShimmer, uiBlip } from 
  *  reveal  — tap through the stack one card at a time; drag anywhere to
  *            wobble the current card (holo foils shimmer with the tilt)
  *  summary — the full pull fans out; tap any card to inspect it in 3D
+ *
+ * Packs flagged `relief` add one more layer: each revealed card is rendered
+ * through the WebGL relief pipeline (fx/relief.ts + fx/reliefRenderer.ts),
+ * lit and displaced by the pointer, with a map inspector in the reveal HUD.
  */
 
 type Phase = 'pack' | 'burst' | 'reveal' | 'summary';
@@ -51,7 +56,11 @@ export function openingScene(opts: {
     <div class="hint hint-spin">Drag to spin the pack</div>
     <div class="hint hint-tear">Pull across the top to tear it open</div>
     <div class="reveal-hud">
-      <button class="btn btn-ghost skip-btn">Reveal all</button>
+      <p class="relief-note">Depth · normal · roughness derived from the card art — move the pointer to relight and displace the print.</p>
+      <div class="hud-row">
+        <button class="btn btn-ghost maps-btn">Maps: Lit</button>
+        <button class="btn btn-ghost skip-btn">Reveal all</button>
+      </div>
     </div>
     <div class="summary-panel">
       <h2 class="summary-title">Your pull</h2>
@@ -76,6 +85,12 @@ export function openingScene(opts: {
   let phase: Phase = 'pack';
   let disposed = false;
   const cleanups: (() => void)[] = [];
+
+  /* The relief demo. Gated on the pack flag and on WebGL2 actually being
+     there — without it every card just stays a flat image. */
+  const useRelief = !!pack.relief && reliefSupported();
+  if (useRelief) el.classList.add('relief-pack');
+  setReliefDebug('lit');
 
   function setPhase(p: Phase) {
     el.classList.remove(`phase-${phase}`);
@@ -331,10 +346,15 @@ export function openingScene(opts: {
   const wobX = new Spring(0, 150, 9);
   const wobY = new Spring(0, 150, 9);
   let pointerNorm = { x: 0.5, y: 0.5 };
+  /* Same pointer, unclamped: the relief light keeps travelling once the
+     cursor leaves the card, which is what sells it as a lamp in the room. */
+  let lightNorm = { x: 0.5, y: 0.35 };
+  /* Crossfade from the flat scan to the lit surface as a card turns over. */
+  let reliefFade = 0;
 
   function buildStack() {
     for (let i = 0; i < cards.length; i++) {
-      const c = buildCard(cards[i], cardBack);
+      const c = buildCard(cards[i], cardBack, { relief: useRelief });
       c.root.classList.add('in-stack', 'face-down');
       const depth = i; // 0 = top of stack
       c.root.style.setProperty('--depth', String(depth));
@@ -342,6 +362,13 @@ export function openingScene(opts: {
       c.root.style.zIndex = String(cards.length - i);
       stackZone.appendChild(c.root);
       cardEls.push(c);
+    }
+    // Derive the first two cards' maps now, under cover of the burst — a few
+    // tens of ms of CPU each, and the worst possible moment to spend them is
+    // the instant a card turns over.
+    if (useRelief) {
+      void cardEls[0]?.relief?.ready();
+      setTimeout(() => cardEls[1]?.relief?.ready(), 150);
     }
   }
 
@@ -363,6 +390,14 @@ export function openingScene(opts: {
     flipped = true;
     flipSnap();
     c.root.classList.remove('face-down');
+    if (useRelief) {
+      reliefFade = 0;
+      c.relief?.mount();
+      void c.relief?.ready();
+      // Derive the next card's maps now, while this one is being admired —
+      // a few ms of CPU that would otherwise land on the flip.
+      void cardEls[currentIdx + 1]?.relief?.ready();
+    }
     // Inline animation so it wins over (and then permanently clears) the
     // card-rise fill — otherwise the rise would replay when a class-based
     // animation is removed, and its forwards-fill would block the wobble
@@ -391,7 +426,13 @@ export function openingScene(opts: {
     c.root.style.animation = ''; // hand control back to the fly-off class
     c.root.classList.add('fly-off');
     c.root.style.setProperty('--fly-rot', `${(Math.random() * 24 - 12).toFixed(1)}deg`);
-    setTimeout(() => c.root.remove(), 700);
+    // Hand the shared relief canvas back before the card flies off, then let
+    // its textures go with it.
+    c.relief?.unmount();
+    setTimeout(() => {
+      c.root.remove();
+      c.relief?.dispose();
+    }, 700);
     currentIdx++;
     wobX.snap(0);
     wobY.snap(0);
@@ -435,10 +476,10 @@ export function openingScene(opts: {
       const c = currentCard();
       if (!c) return;
       const r = c.root.getBoundingClientRect();
-      pointerNorm = {
-        x: clamp((e.clientX - r.left) / r.width, 0, 1),
-        y: clamp((e.clientY - r.top) / r.height, 0, 1),
-      };
+      const nx = (e.clientX - r.left) / r.width;
+      const ny = (e.clientY - r.top) / r.height;
+      pointerNorm = { x: clamp(nx, 0, 1), y: clamp(ny, 0, 1) };
+      lightNorm = { x: nx, y: ny };
       if (rDrag && e.pointerId === rDrag.id) {
         const dx = e.clientX - rDrag.startX;
         const dy = e.clientY - rDrag.startY;
@@ -491,6 +532,16 @@ export function openingScene(opts: {
       // can't intersect (and slice through) the card behind it
       c.root.style.transform = `translateZ(34px) rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
       c.setShine(rx, ry, pointerNorm.x, pointerNorm.y);
+      if (c.relief) {
+        reliefFade = Math.min(1, reliefFade + dt * 2.8);
+        c.relief.render({
+          tiltX: rx,
+          tiltY: ry,
+          lightU: lightNorm.x,
+          lightV: lightNorm.y,
+          intensity: reliefFade,
+        });
+      }
     }),
   );
 
@@ -534,18 +585,24 @@ export function openingScene(opts: {
 
   function inspect(data: CardData) {
     uiBlip();
+    inspectCleanup?.();
+    inspectCleanup = null;
     inspectMount.innerHTML = '';
-    const c = buildCard(data, cardBack);
+    const c = buildCard(data, cardBack, { relief: useRelief });
     c.root.classList.add('inspect-card');
     inspectMount.appendChild(c.root);
+    c.relief?.mount();
+    void c.relief?.ready();
     inspectOverlay.classList.add('show');
     const sx = new Spring(0, 150, 10);
     const sy = new Spring(0, 150, 10);
     let norm = { x: 0.5, y: 0.5 };
+    let light = { x: 0.5, y: 0.3 };
     let down = false;
     const onMove = (e: PointerEvent) => {
       const r = c.root.getBoundingClientRect();
-      norm = { x: clamp((e.clientX - r.left) / r.width, 0, 1), y: clamp((e.clientY - r.top) / r.height, 0, 1) };
+      light = { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+      norm = { x: clamp(light.x, 0, 1), y: clamp(light.y, 0, 1) };
       const scale = down || e.pointerType !== 'mouse' ? 1 : 0.55;
       sy.target = (norm.x - 0.5) * 30 * scale;
       sx.target = (0.5 - norm.y) * 24 * scale;
@@ -564,17 +621,23 @@ export function openingScene(opts: {
     inspectOverlay.addEventListener('pointermove', onMove);
     inspectOverlay.addEventListener('pointerdown', onDown);
     inspectOverlay.addEventListener('pointerup', onUp);
+    let fade = 0;
     const stopTilt = onTick((dt) => {
       sx.step(dt);
       sy.step(dt);
       c.root.style.transform = `rotateX(${sx.value.toFixed(2)}deg) rotateY(${sy.value.toFixed(2)}deg)`;
       c.setShine(sx.value, sy.value, norm.x, norm.y);
+      if (c.relief) {
+        fade = Math.min(1, fade + dt * 3.2);
+        c.relief.render({ tiltX: sx.value, tiltY: sy.value, lightU: light.x, lightV: light.y, intensity: fade });
+      }
     });
     inspectCleanup = () => {
       inspectOverlay.removeEventListener('pointermove', onMove);
       inspectOverlay.removeEventListener('pointerdown', onDown);
       inspectOverlay.removeEventListener('pointerup', onUp);
       stopTilt();
+      c.relief?.dispose();
     };
   }
 
@@ -600,9 +663,25 @@ export function openingScene(opts: {
   el.querySelector('.again-btn')!.addEventListener('click', opts.onAgain);
   el.querySelector('.skip-btn')!.addEventListener('click', () => {
     if (phase !== 'reveal') return;
-    for (const c of cardEls.slice(Math.max(currentIdx, 0))) c.root.remove();
+    for (const c of cardEls.slice(Math.max(currentIdx, 0))) {
+      c.relief?.dispose();
+      c.root.remove();
+    }
     currentIdx = cardEls.length;
     showSummary();
+  });
+
+  /* Map inspector — cycles what the shader writes out, so the demo can show
+     the derived depth / normal / roughness channels, not just the lit result.
+     Parallax stays applied in every mode: the maps visibly slide too. */
+  const mapsBtn = el.querySelector<HTMLButtonElement>('.maps-btn')!;
+  let debugIdx = 0;
+  mapsBtn.addEventListener('click', () => {
+    uiBlip();
+    debugIdx = (debugIdx + 1) % RELIEF_DEBUG_MODES.length;
+    const mode: ReliefDebug = RELIEF_DEBUG_MODES[debugIdx];
+    setReliefDebug(mode);
+    mapsBtn.textContent = `Maps: ${mode[0].toUpperCase()}${mode.slice(1)}`;
   });
 
   return {
@@ -610,6 +689,7 @@ export function openingScene(opts: {
     destroy() {
       disposed = true;
       inspectCleanup?.();
+      for (const c of cardEls) c.relief?.dispose();
       for (const fn of cleanups) fn();
     },
   };
