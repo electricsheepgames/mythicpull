@@ -6,7 +6,13 @@ import { buildCard, type CardEl } from '../components/card';
 import { Spring, onTick } from '../fx/spring';
 import { burst, rainbowBurst, tearSparks } from '../fx/particles';
 import { tearCrackle, ripOpen, cardWhoosh, flipSnap, rareShimmer, uiBlip } from '../fx/sound';
-import { RELIEF_DEBUG_MODES, reliefSupported, setReliefDebug, type ReliefDebug } from '../fx/reliefRenderer';
+import {
+  RELIEF_DEBUG_LABELS,
+  RELIEF_DEBUG_MODES,
+  reliefSupported,
+  setReliefDebug,
+  type ReliefDebug,
+} from '../fx/reliefRenderer';
 
 /**
  * The pack-cracking ritual, in four phases:
@@ -18,9 +24,10 @@ import { RELIEF_DEBUG_MODES, reliefSupported, setReliefDebug, type ReliefDebug }
  *            wobble the current card (holo foils shimmer with the tilt)
  *  summary — the full pull fans out; tap any card to inspect it in 3D
  *
- * Packs flagged `relief` add one more layer: each revealed card is rendered
- * through the WebGL relief pipeline (fx/relief.ts + fx/reliefRenderer.ts),
- * lit and displaced by the pointer, with a map inspector in the reveal HUD.
+ * Packs flagged `relief` add one more layer: the art window of each revealed
+ * card (data/artBox.ts) is rendered through the WebGL relief pipeline
+ * (fx/relief.ts + fx/reliefRenderer.ts), lit and displaced by the pointer,
+ * with a map inspector in the reveal HUD.
  */
 
 type Phase = 'pack' | 'burst' | 'reveal' | 'summary';
@@ -56,7 +63,7 @@ export function openingScene(opts: {
     <div class="hint hint-spin">Drag to spin the pack</div>
     <div class="hint hint-tear">Pull across the top to tear it open</div>
     <div class="reveal-hud">
-      <p class="relief-note">Depth · normal · roughness derived from the card art — move the pointer to relight and displace the print.</p>
+      <p class="relief-note">Depth · normal · roughness derived from the card art — move the pointer to relight and displace the print. Confined to each frame's art window; the border and text box stay flat.</p>
       <div class="hud-row">
         <button class="btn btn-ghost maps-btn">Maps: Lit</button>
         <button class="btn btn-ghost skip-btn">Reveal all</button>
@@ -673,7 +680,9 @@ export function openingScene(opts: {
 
   /* Map inspector — cycles what the shader writes out, so the demo can show
      the derived depth / normal / roughness channels, not just the lit result.
-     Parallax stays applied in every mode: the maps visibly slide too. */
+     Parallax stays applied in every mode: the maps visibly slide too. The last
+     mode dims everything outside the art window, which is how you check what
+     data/artBox.ts picked for a frame you haven't seen before. */
   const mapsBtn = el.querySelector<HTMLButtonElement>('.maps-btn')!;
   let debugIdx = 0;
   mapsBtn.addEventListener('click', () => {
@@ -681,7 +690,7 @@ export function openingScene(opts: {
     debugIdx = (debugIdx + 1) % RELIEF_DEBUG_MODES.length;
     const mode: ReliefDebug = RELIEF_DEBUG_MODES[debugIdx];
     setReliefDebug(mode);
-    mapsBtn.textContent = `Maps: ${mode[0].toUpperCase()}${mode.slice(1)}`;
+    mapsBtn.textContent = `Maps: ${RELIEF_DEBUG_LABELS[mode]}`;
   });
 
   return {

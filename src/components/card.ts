@@ -1,4 +1,5 @@
 import type { CardData } from '../data/types';
+import { normalizeArtBox } from '../data/artBox';
 import { deriveReliefMaps, type ReliefMaps } from '../fx/relief';
 import { createReliefSurface, reliefSupported, type ReliefState, type ReliefSurface } from '../fx/reliefRenderer';
 
@@ -12,8 +13,10 @@ import { createReliefSurface, reliefSupported, type ReliefState, type ReliefSurf
  *
  * Cards built with `{ relief: true }` additionally get the WebGL relief
  * pipeline layered over the image: depth/normal/roughness maps derived from
- * the card art, lit and displaced by the pointer (see fx/relief.ts). It is
- * opt-in per pack, and every step degrades back to the plain `<img>`.
+ * the card art, lit and displaced by the pointer (see fx/relief.ts). The
+ * effect is confined to the printing's art window (`data.artBox`) so the
+ * frame, text box and border stay flat. It is opt-in per pack, and every step
+ * degrades back to the plain `<img>`.
  */
 
 export interface CardEl {
@@ -126,12 +129,16 @@ function buildReliefHandle(
     await settled(img);
     if (disposed || failed()) return false;
     const t0 = performance.now();
-    maps = deriveReliefMaps(img);
+    const box = normalizeArtBox(data.artBox);
+    maps = deriveReliefMaps(img, box);
     if (!maps) {
       console.warn(`[relief] could not read "${data.name}" — falling back to the flat image`);
       return false;
     }
-    surface = createReliefSurface(img, maps, { foil: data.foil });
+    // The shader lights in card space, so it needs the card's own proportions;
+    // the maps only know the window's.
+    const cardAspect = img.naturalHeight / img.naturalWidth;
+    surface = createReliefSurface(img, maps, { foil: data.foil, cardAspect });
     if (!surface) return false;
     root.classList.add('has-relief');
     console.debug(`[relief] "${data.name}" maps derived in ${(performance.now() - t0).toFixed(1)}ms`);

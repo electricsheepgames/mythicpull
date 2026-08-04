@@ -21,7 +21,14 @@ export interface ScryfallCard {
   rarity: Rarity;
   type_line?: string;
   image_uris?: Record<string, string>;
-  card_faces?: { image_uris?: Record<string, string> }[];
+  card_faces?: { image_uris?: Record<string, string>; type_line?: string }[];
+  /* Frame metadata — everything data/artBox.ts needs to place the art window. */
+  layout?: string;
+  frame?: string;
+  frame_effects?: string[];
+  border_color?: string;
+  full_art?: boolean;
+  collector_number?: string;
 }
 
 export function imageUris(c: ScryfallCard): Record<string, string> | undefined {

@@ -1,3 +1,5 @@
+import type { ArtBox } from '../data/artBox';
+
 /**
  * Material-map derivation.
  *
@@ -17,11 +19,19 @@
  *
  * All of it is one CPU pass over a downscaled copy (a few ms per card); the
  * shader samples the results bilinearly at full card size.
+ *
+ * The maps cover the card's *art window only* (data/artBox.ts), not the whole
+ * face. Frame, title bar, text box and border are printed flat and stay flat —
+ * embossing them made card stock ripple like foil. Spending the whole map
+ * budget on the art also buys back resolution: the same 384px covers a region
+ * ~16% narrower than the card.
  */
 
 export interface ReliefMaps {
   width: number;
   height: number;
+  /** The card-space rect these maps cover; map UV (0..1) spans exactly this. */
+  box: ArtBox;
   /** Tangent-space normal, xyz packed into rgb. */
   normal: ImageData;
   /** r = depth, g = roughness, b = cavity AO. */
@@ -29,34 +39,52 @@ export interface ReliefMaps {
 }
 
 /**
- * Maps are derived at this width; the aspect follows the source image. The
+ * Maps are derived at this width; the aspect follows the art window. The
  * shader samples them bilinearly, so this trades map crispness against the
  * one-off CPU cost per card (tens of milliseconds) — 384 keeps rules text
  * legible in the emboss without a noticeable hitch.
  */
 const MAP_WIDTH = 384;
 
+/**
+ * Ceiling on map height. Saga and Class windows are tall and narrow (roughly
+ * 1:2.4), and without this the derivation would cost three times what a
+ * landscape window does for no visible gain.
+ */
+const MAP_MAX_HEIGHT = 640;
+
 /** How hard the Sobel gradients tip the normals. */
 const NORMAL_STRENGTH = 2.6;
 
 /**
- * Derive depth/normal/roughness for one card face. Returns null when the
- * image can't be read — not decoded yet, or cross-origin without CORS, which
- * taints the canvas and would also make it unusable as a WebGL texture.
+ * Derive depth/normal/roughness for one card's art window. Returns null when
+ * the image can't be read — not decoded yet, or cross-origin without CORS,
+ * which taints the canvas and would also make it unusable as a WebGL texture.
  */
-export function deriveReliefMaps(source: HTMLImageElement): ReliefMaps | null {
+export function deriveReliefMaps(source: HTMLImageElement, box: ArtBox): ReliefMaps | null {
   const sw = source.naturalWidth;
   const sh = source.naturalHeight;
   if (!sw || !sh) return null;
 
-  const w = MAP_WIDTH;
-  const h = Math.max(1, Math.round((MAP_WIDTH * sh) / sw));
+  // Source rect in image pixels, snapped so the crop lands on whole pixels.
+  const sx = Math.round(box.x * sw);
+  const sy = Math.round(box.y * sh);
+  const cropW = Math.max(1, Math.round(box.w * sw));
+  const cropH = Math.max(1, Math.round(box.h * sh));
+
+  let w = MAP_WIDTH;
+  let h = Math.max(1, Math.round((w * cropH) / cropW));
+  if (h > MAP_MAX_HEIGHT) {
+    h = MAP_MAX_HEIGHT;
+    w = Math.max(1, Math.round((h * cropW) / cropH));
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
-  ctx.drawImage(source, 0, 0, w, h);
+  ctx.drawImage(source, sx, sy, cropW, cropH, 0, 0, w, h);
 
   let px: Uint8ClampedArray;
   try {
@@ -142,7 +170,7 @@ export function deriveReliefMaps(source: HTMLImageElement): ReliefMaps | null {
     }
   }
 
-  return { width: w, height: h, normal, material };
+  return { width: w, height: h, box, normal, material };
 }
 
 /** Separable box blur with a running sum — O(n) regardless of radius. */

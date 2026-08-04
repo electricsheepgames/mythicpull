@@ -25,15 +25,21 @@ modeled on the pack-opening experience in **Pokémon TCG Pocket**.
    pointer, in the style of the famous `pokemon-cards-css` effect.
 6. **Your pull** — the full pack fans out into a grid with rarity chips; tap
    any card to inspect it in 3D with the full tilt + holo treatment.
-7. **Relief Demo** — a fixed 8-card demo pack (badged `DEMO` in the menu)
+7. **Relief Demo** — a fixed 34-card demo pack (badged `DEMO` in the menu)
    that renders each revealed card as a lit surface instead of a flat scan.
    Depth, normal and roughness maps are derived from the card image itself,
    and a WebGL2 shader does relief (parallax-occlusion) mapping plus
    Blinn-Phong shading with a point light that sits wherever the pointer is —
    so moving the mouse both relights the card and physically displaces the
-   print. A **Maps** button in the reveal HUD cycles the shader between the
-   lit result and the raw depth / normal / roughness channels. Contents are
-   pinned, so every open is the same eight cards in the same order.
+   print. The effect is confined to the printing's **art window**: the frame,
+   title bar, text box and border are flat card stock and stay flat, while
+   sagas, Class sidebars, extended art, borderless and full-art treatments
+   each get their own rectangle (see
+   [`src/data/artBox.ts`](src/data/artBox.ts)). A **Maps** button in the
+   reveal HUD cycles the shader between the lit result, the raw depth /
+   normal / roughness channels, and an art-window overlay. Contents are
+   pinned, and the list is a frame sampler — it walks every art-window
+   geometry in one open.
 
 All sound is synthesized with WebAudio at runtime (tear crackle, whooshes,
 shimmers) — no audio assets. Mouse and touch are both first-class
@@ -104,8 +110,10 @@ slot/rarity generation can replace `fetchPackCards()` in
 
 ```
 docs/         adding-packs.md — how to add a new set to the registry
+scripts/      pack validation + the art-window sampler and report
 src/
-  data/       pack registry, Scryfall client, offline mock renderer
+  data/       pack registry, Scryfall client, offline mock renderer,
+              art-window table (which part of a card is the painting)
   components/ 3D card (front/back + holo layers), 3D booster wrapper
   scenes/     menu (pack select), opening (pack → tear → reveal → summary)
   fx/         spring physics + shared ticker, particle canvas, WebAudio sound,

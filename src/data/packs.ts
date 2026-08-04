@@ -179,29 +179,76 @@ export const PACKS: PackDefinition[] = [
     id: 'relief',
     name: 'Relief Demo',
     setCode: 'fdn',
-    tagline: 'Tech demo · 8 fixed cards',
+    tagline: 'Tech demo · 34 frame styles',
     accent: '#4fd8ff',
     accentSecondary: '#b061ff',
     keyArt: 'scryfall-art:Shivan Dragon:fdn',
-    // A test bench, not a booster: `fixedContents` pins the list below so the
-    // same eight cards come out in the same order every single open, and
-    // `relief` routes them through the depth/normal/roughness pipeline. Cards
-    // are drawn from the Foundations sampler above (default printings, all
-    // with hand-drawn offline art in mock.ts) so the demo behaves identically
-    // online and under `?mock=1`.
+    /*
+     * A test bench, not a booster. `fixedContents` pins the list below so the
+     * same cards come out in the same order every open, and `relief` routes
+     * them through the depth/normal/roughness pipeline.
+     *
+     * The list is a frame sampler, not a card sampler: it walks every art-window
+     * geometry data/artBox.ts knows about — four frame generations, sagas,
+     * Class and Case sidebars, a Kamigawa flip, planeswalkers, extended art,
+     * showcase treatments, borderless, and full art — so the relief effect can
+     * be checked against each in one open. Every entry pins an exact printing
+     * by collector number, because the *treatment* is the point and resolving
+     * by name alone would hand back whichever printing Scryfall defaults to.
+     *
+     * Under `?mock=1` these fall back to procedurally drawn cards, which all
+     * share one frame — the effect still demos, the style variety doesn't.
+     */
     fixedContents: true,
     relief: true,
     demo: true,
     cards: [
-      { name: 'Llanowar Elves' },
-      { name: 'Shock' },
-      { name: 'Divination' },
-      { name: 'Pacifism' },
-      { name: 'Counterspell' },
-      { name: 'Serra Angel' },
-      { name: 'Shivan Dragon' },
-      // Foil last, so the shader's iridescence closes the demo out.
-      { name: 'Atraxa, Grand Unifier', foil: true },
+      // 1993 and 1997 frames: a narrower, higher art window.
+      { name: 'Sorceress Queen', set: 'itp', collectorNumber: '24' },
+      { name: 'Power Sink', set: 'rqs', collectorNumber: '11' },
+      { name: 'Nowhere to Run', set: 'pw26', collectorNumber: '1' },
+      { name: 'Cryptbreaker', set: 'sld', collectorNumber: '839' },
+      // 2003 modern frame.
+      { name: 'Bellowing Tanglewurm', set: 'plst', collectorNumber: 'SOM-111' },
+      { name: 'War Priest of Thune', set: 'plst', collectorNumber: 'M11-38' },
+      // M15 frame — the default box, and by far the most common case.
+      { name: 'Watery Grave', set: 'trk', collectorNumber: '306' },
+      { name: 'Grizzlegom, Hurloon Hero', set: 'mbc', collectorNumber: '39' },
+      { name: 'Merciless Executioner', set: 'hoc', collectorNumber: '188' },
+      { name: 'Bonecrusher Giant', set: 'plst', collectorNumber: 'ELD-115' },
+      { name: 'Darkbore Pathway', set: 'plst', collectorNumber: 'KHM-254' },
+      // Windows that move: sagas put the art down the right half, Class and
+      // Case mirror it to the left, Kamigawa flips centre it.
+      { name: 'Chainer\'s Torment', set: 'dom', collectorNumber: '82' },
+      { name: 'Origin of Spider-Man', set: 'spm', collectorNumber: '9' },
+      { name: 'Cleric Class', set: 'plst', collectorNumber: 'AFR-6' },
+      { name: 'Case of the Locked Hothouse', set: 'mkm', collectorNumber: '155' },
+      { name: 'Akki Lavarunner', set: 'chk', collectorNumber: '153' },
+      // Planeswalkers: wider window, starts higher.
+      { name: 'Liliana, Death\'s Majesty', set: 'drc', collectorNumber: '94' },
+      { name: 'Chandra, Novice Pyromancer', set: 'plst', collectorNumber: 'M20-128' },
+      // Extended art — the standard window stretched to both card edges.
+      { name: 'Burst Lightning', set: 'pw26', collectorNumber: '20' },
+      { name: 'Choked Estuary', set: 'msc', collectorNumber: '464' },
+      { name: 'M.O.D.O.K.', set: 'msh', collectorNumber: '408' },
+      // Showcase frames: wildly different art, same window as the M15 frame.
+      { name: 'Farewell', set: 'neo', collectorNumber: '365' },
+      { name: 'Olivia, Crimson Bride', set: 'vow', collectorNumber: '315' },
+      { name: 'Queza, Augur of Agonies', set: 'snc', collectorNumber: '326' },
+      { name: 'Tinybones, the Pickpocket', set: 'otj', collectorNumber: '290' },
+      // Borderless: art runs to the trimmed edge, so the window is the card.
+      { name: 'Command Tower', set: 'sld', collectorNumber: '2812' },
+      { name: 'Captain Kathryn Janeway', set: 'trk', collectorNumber: '1704' },
+      { name: 'Arcane Signet', set: 'tle', collectorNumber: '315' },
+      { name: 'Berserk', set: 'soa', collectorNumber: '50' },
+      { name: 'Jace Beleren', set: 'pspl', collectorNumber: '13' },
+      { name: 'Kaito, Bane of Nightmares', set: 'dsk', collectorNumber: '409' },
+      // Full art, printed border intact.
+      { name: 'Island', set: 'fic', collectorNumber: '479' },
+      { name: 'Deep-Cavern Bat', set: 'sch', collectorNumber: '33' },
+      // Foil last, so the shader's iridescence closes the demo out — and on a
+      // ukiyo-e full art, where it has the whole card to rake across.
+      { name: 'Hidetsugu, Devouring Chaos', set: 'neo', collectorNumber: '432', foil: true },
     ],
   },
 ];

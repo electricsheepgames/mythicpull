@@ -149,14 +149,56 @@ demo: true,           // DEMO badge on the menu chip
   a WebGL2 shader does relief (parallax-occlusion) mapping plus Blinn-Phong
   shading with a point light parked at the pointer. Moving the mouse relights
   *and* displaces the print; the reveal HUD gains a **Maps** button that
-  cycles the shader's output between the lit result and each raw channel.
-  Everything degrades to the flat card image if WebGL2 is missing, the image
-  is cross-origin without CORS, or map derivation fails.
+  cycles the shader's output between the lit result, each raw channel, and an
+  art-window overlay. Everything degrades to the flat card image if WebGL2 is
+  missing, the image is cross-origin without CORS, or map derivation fails.
 - **`demo`** is cosmetic — it badges the chip in the menu rail.
 
 Map derivation costs tens of milliseconds per card and runs lazily: the first
 two cards are derived under cover of the pack burst, then each flip warms the
 next one.
+
+### Pinning an exact printing
+
+A card ref normally resolves by name, which returns whichever printing
+Scryfall considers the default. When the *treatment* is what you want — a
+showcase, borderless or extended-art version, which all share the card's name
+— add `collectorNumber` alongside `set`:
+
+```ts
+{ name: 'Hidetsugu, Devouring Chaos', set: 'neo', collectorNumber: '432', foil: true },
+```
+
+The collector number is the small number bottom-left on the card, and it's in
+every Scryfall URL. `npm run validate:packs` checks that each pin resolves and
+that the printing it lands on actually carries the name you wrote.
+
+## 5a. Art windows
+
+Only the *painting* gets the relief treatment — embossing a frame makes flat
+card stock ripple. [`src/data/artBox.ts`](../src/data/artBox.ts) maps a
+printing's frame metadata (`layout`, `frame`, `frame_effects`, `border_color`,
+`full_art`) to a normalized rectangle: the M15 window by default, the right
+half for sagas, the left for Class and Case, full width for extended art, the
+whole card for borderless and full art, and so on.
+
+The numbers came from measurement, not eyeballing. Scryfall publishes an
+`art_crop` cut from the same scan as each full card image, so locating that
+crop back inside the card recovers the frame's rectangle exactly. Two scripts
+maintain the table:
+
+```bash
+# Re-derive the table: sample printings per frame family, measure, cluster.
+node scripts/art-box-sample.mjs
+
+# Check the current table against real cards -> art-box-report.html
+node --experimental-strip-types scripts/art-box-report.mjs [packId|all]
+```
+
+When a set ships a frame the table doesn't cover, the report is where you'll
+see it — the rectangle won't be sitting on the painting. Add a bucket to the
+sampler, take the cluster median, and add a row. `CardData.artBox` is writable
+if a single card needs pinning by hand.
 
 ## 6. How randomized contents work
 

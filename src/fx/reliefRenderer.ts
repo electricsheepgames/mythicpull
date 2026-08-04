@@ -1,3 +1,4 @@
+import type { ArtBox } from '../data/artBox';
 import type { ReliefMaps } from './relief';
 
 /**
@@ -13,17 +14,56 @@ import type { ReliefMaps } from './relief';
  * the pointer is. Moving the mouse moves the light *and* the eye, so the
  * printed surface both re-lights and physically shifts under the cursor.
  *
- * Everything is expressed in UV space with +y pointing down, matching the
- * maps in relief.ts and the DOM. `uAspect` converts UV distances into
- * card-width units so the light falls off in a circle, not an ellipse.
+ * Two UV spaces are in play, both with +y down to match the DOM and the
+ * texture uploads:
+ *
+ *   card space   the whole face, 0..1. The albedo texture, the light and the
+ *                eye all live here, so the lighting is unchanged by where the
+ *                art window happens to be.
+ *   art space    the art window (`uArtBox`) remapped to 0..1. The derived
+ *                maps cover only this, so the march and the shading normals
+ *                are sampled here, and everything outside it stays the flat
+ *                printed scan.
+ *
+ * `uAspect` converts card-space UV distances into card-width units so the
+ * light falls off in a circle, not an ellipse.
  */
 
-export type ReliefDebug = 'lit' | 'depth' | 'normal' | 'roughness';
+export type ReliefDebug = 'lit' | 'depth' | 'normal' | 'roughness' | 'artbox';
 
 /** Cycle order for the demo's map inspector. */
-export const RELIEF_DEBUG_MODES: ReliefDebug[] = ['lit', 'depth', 'normal', 'roughness'];
+export const RELIEF_DEBUG_MODES: ReliefDebug[] = ['lit', 'depth', 'normal', 'roughness', 'artbox'];
 
-const DEBUG_INDEX: Record<ReliefDebug, number> = { lit: 0, depth: 1, normal: 2, roughness: 3 };
+/** Button labels for the cycle above. */
+export const RELIEF_DEBUG_LABELS: Record<ReliefDebug, string> = {
+  lit: 'Lit',
+  depth: 'Depth',
+  normal: 'Normal',
+  roughness: 'Roughness',
+  artbox: 'Art window',
+};
+
+const DEBUG_INDEX: Record<ReliefDebug, number> = {
+  lit: 0,
+  depth: 1,
+  normal: 2,
+  roughness: 3,
+  artbox: 4,
+};
+
+/**
+ * Max parallax shift, as a fraction of card width. Printed card stock is not
+ * deep; this is about as far as the surface can travel before the ink starts
+ * to read as a relief carving rather than a print.
+ */
+const RELIEF_DEPTH = 0.03;
+
+/**
+ * How far the effect ramps in at the edge of the art window, in card widths.
+ * Wide enough that the transition to the flat frame reads as light falling
+ * off rather than as a rectangle switching on.
+ */
+const EDGE_FEATHER = 0.038;
 
 export interface ReliefState {
   /** Card tilt in degrees — the same values that drive the CSS transform. */
@@ -55,13 +95,15 @@ precision highp float;
 in vec2 vUv;
 out vec4 fragColor;
 
-uniform sampler2D uAlbedo;
-uniform sampler2D uNormalMap;
-uniform sampler2D uMaterial;   // r = depth, g = roughness, b = cavity
+uniform sampler2D uAlbedo;     // the whole card face, card space
+uniform sampler2D uNormalMap;  // art window only, art space
+uniform sampler2D uMaterial;   // art window only: r = depth, g = roughness, b = cavity
 uniform vec3 uView;            // surface -> eye, tangent space
-uniform vec3 uLight;           // xy in UV space, z above the surface
+uniform vec3 uLight;           // xy in card space, z above the surface
 uniform vec2 uAspect;          // (1, cardHeight / cardWidth)
-uniform float uDepth;          // max parallax shift, in UV units
+uniform vec4 uArtBox;          // art window in card space: xy = origin, zw = size
+uniform vec2 uFeather;         // art-space ramp width per axis
+uniform float uDepth;          // max parallax shift, in card-space UV units
 uniform float uFoil;
 uniform float uIntensity;
 uniform int uDebug;
@@ -80,18 +122,30 @@ float marchDepth(vec2 uv) {
 }
 
 /**
+ * How much of the effect applies here. 1 well inside the art window, ramping
+ * to 0 at its edge so the painting blends into the flat frame instead of
+ * ending on a visible rectangle.
+ */
+float windowMask(vec2 a) {
+  vec2 e = min(a, 1.0 - a);
+  return smoothstep(0.0, uFeather.x, e.x) * smoothstep(0.0, uFeather.y, e.y);
+}
+
+/**
  * Steep parallax with a linear-interpolated final step. Raised ink occludes
  * the sunken background as the view angle grows, which is the whole point:
- * the surface has thickness.
+ * the surface has thickness. Marches in art space; depthScale is a card-space
+ * displacement, converted per axis on the way in so the shift keeps its
+ * physical size whatever proportions the window has.
  */
-vec2 relief(vec2 uv, vec3 v, float depthScale) {
+vec2 relief(vec2 a, vec3 v, float depthScale) {
   // Step count follows the actual shift, not just the view angle: a long
   // march with few layers is what produces smeared ghosts at height steps.
   float steepness = clamp(length(v.xy) / max(v.z, 0.3), 0.0, 1.0);
   float layers = mix(12.0, 32.0, steepness);
   float layerStep = 1.0 / layers;
-  vec2 delta = (v.xy / max(v.z, 0.3)) * depthScale * layerStep;
-  vec2 cur = uv;
+  vec2 delta = (v.xy / max(v.z, 0.3)) * depthScale * layerStep / uArtBox.zw;
+  vec2 cur = a;
   float depth = marchDepth(cur);
   float layer = 0.0;
   for (int i = 0; i < 32; i++) {
@@ -108,16 +162,27 @@ vec2 relief(vec2 uv, vec3 v, float depthScale) {
 }
 
 void main() {
+  // Card space -> art space. Outside the window there is no depth data and
+  // nothing to light: the frame, the text box and the border are printed flat,
+  // so they pass through as the untouched scan.
+  vec2 a = (vUv - uArtBox.xy) / uArtBox.zw;
+  float mask = a.x < 0.0 || a.x > 1.0 || a.y < 0.0 || a.y > 1.0 ? 0.0 : windowMask(a);
+  if (mask <= 0.002) {
+    vec3 flat3 = texture(uAlbedo, vUv).rgb;
+    fragColor = vec4(uDebug == 4 ? flat3 * 0.45 : flat3, 1.0);
+    return;
+  }
+
   vec3 v = normalize(uView + vec3((vUv - 0.5) * PERSPECTIVE * uAspect, 0.0));
 
-  // Ease the displacement out at the card's own edge. Without this the black
-  // border shears off the face at steep angles, which reads as a broken
-  // texture rather than a thick one.
-  float edge = min(min(vUv.x, 1.0 - vUv.x) / 0.05, min(vUv.y, 1.0 - vUv.y) / 0.035);
-  vec2 uv = relief(vUv, v, uDepth * smoothstep(0.0, 1.0, clamp(edge, 0.0, 1.0)));
+  // The mask doubles as the displacement ease-out. Without it the art shears
+  // off its own window at steep angles, which reads as a broken texture
+  // rather than a thick one.
+  vec2 auv = relief(a, v, uDepth * smoothstep(0.0, 1.0, mask));
+  vec2 uv = uArtBox.xy + auv * uArtBox.zw;
 
-  vec3 n = normalize(texture(uNormalMap, uv).xyz * 2.0 - 1.0);
-  vec3 mat = texture(uMaterial, uv).rgb;
+  vec3 n = normalize(texture(uNormalMap, auv).xyz * 2.0 - 1.0);
+  vec3 mat = texture(uMaterial, auv).rgb;
   vec3 albedo = texture(uAlbedo, uv).rgb;
 
   vec3 toLight = vec3((uLight.xy - uv) * uAspect, uLight.z);
@@ -146,10 +211,11 @@ void main() {
     lit += iridescence * (sheen * 0.6 + spec * 0.9) * atten * 1.7;
   }
 
-  vec3 color = mix(albedo, lit, uIntensity);
+  vec3 color = mix(albedo, lit, uIntensity * mask);
   if (uDebug == 1) color = vec3(mat.r);
-  else if (uDebug == 2) color = texture(uNormalMap, uv).rgb;
+  else if (uDebug == 2) color = texture(uNormalMap, auv).rgb;
   else if (uDebug == 3) color = vec3(mat.g);
+  else if (uDebug == 4) color = mix(color * 0.45, color, mask); // show the window
 
   fragColor = vec4(color, 1.0);
 }`;
@@ -195,7 +261,7 @@ function createEngine(): Engine | null {
 
   gl.useProgram(program);
   const uniforms: Engine['uniforms'] = {};
-  for (const name of ['uAlbedo', 'uNormalMap', 'uMaterial', 'uView', 'uLight', 'uAspect', 'uDepth', 'uFoil', 'uIntensity', 'uDebug']) {
+  for (const name of ['uAlbedo', 'uNormalMap', 'uMaterial', 'uView', 'uLight', 'uAspect', 'uArtBox', 'uFeather', 'uDepth', 'uFoil', 'uIntensity', 'uDebug']) {
     uniforms[name] = gl.getUniformLocation(program, name);
   }
   gl.uniform1i(uniforms.uAlbedo, 0);
@@ -247,16 +313,33 @@ export class ReliefSurface {
   private readonly normal: WebGLTexture;
   private readonly material: WebGLTexture;
   private readonly aspect: number;
+  private readonly box: ArtBox;
+  /** Edge ramp in art-space UV — equal physical width on both axes. */
+  private readonly feather: [number, number];
   private host: HTMLElement | null = null;
   private disposed = false;
 
-  constructor(engineRef: Engine, source: TexImageSource, maps: ReliefMaps, private foil: boolean) {
+  constructor(
+    engineRef: Engine,
+    source: TexImageSource,
+    maps: ReliefMaps,
+    cardAspect: number,
+    private foil: boolean,
+  ) {
     this.engine = engineRef;
     const gl = engineRef.gl;
     this.albedo = texture(gl, source);
     this.normal = texture(gl, maps.normal);
     this.material = texture(gl, maps.material);
-    this.aspect = maps.height / maps.width;
+    this.aspect = cardAspect;
+    this.box = maps.box;
+    // A narrow window needs a proportionally wider ramp in its own UV to cover
+    // the same distance across the card; capped so a thin Saga strip doesn't
+    // ramp all the way to its own centre.
+    this.feather = [
+      Math.min(0.4, EDGE_FEATHER / maps.box.w),
+      Math.min(0.4, EDGE_FEATHER / (maps.box.h * cardAspect)),
+    ];
   }
 
   /** Borrow the shared canvas and hang it in front of the card's face. */
@@ -316,7 +399,9 @@ export class ReliefSurface {
     gl.uniform3f(uniforms.uView, vx, vy, vz);
     gl.uniform3f(uniforms.uLight, clamp(state.lightU, -1.2, 2.2), clamp(state.lightV, -1.2, 2.2), 0.42);
     gl.uniform2f(uniforms.uAspect, 1, this.aspect);
-    gl.uniform1f(uniforms.uDepth, 0.030);
+    gl.uniform4f(uniforms.uArtBox, this.box.x, this.box.y, this.box.w, this.box.h);
+    gl.uniform2f(uniforms.uFeather, this.feather[0], this.feather[1]);
+    gl.uniform1f(uniforms.uDepth, RELIEF_DEPTH);
     gl.uniform1f(uniforms.uFoil, this.foil ? 1 : 0);
     gl.uniform1f(uniforms.uIntensity, clamp(state.intensity, 0, 1));
     gl.uniform1i(uniforms.uDebug, DEBUG_INDEX[debugMode]);
@@ -343,12 +428,12 @@ export class ReliefSurface {
 export function createReliefSurface(
   source: TexImageSource,
   maps: ReliefMaps,
-  opts: { foil: boolean },
+  opts: { foil: boolean; cardAspect: number },
 ): ReliefSurface | null {
   const eng = getEngine();
   if (!eng) return null;
   try {
-    return new ReliefSurface(eng, source, maps, opts.foil);
+    return new ReliefSurface(eng, source, maps, opts.cardAspect, opts.foil);
   } catch (err) {
     console.warn('[relief] surface creation failed:', err);
     return null;
