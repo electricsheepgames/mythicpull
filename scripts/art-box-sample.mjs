@@ -60,7 +60,7 @@ const BUCKETS = {
   adventure: 'layout:adventure -border:borderless -is:showcase',
   transform: 'is:transform -border:borderless -is:showcase frame:2015',
   mdfc: 'is:mdfc -border:borderless -is:showcase',
-  extendedart: 'frame:extendedart -is:showcase',
+  extendedart: 'is:extendedart -is:showcase',
   showcase: 'is:showcase -is:fullart -border:borderless',
   'fullart-basic': 'is:fullart t:basic',
   'fullart-nonbasic': 'is:fullart -t:basic -border:borderless',
