@@ -24,9 +24,34 @@ for (const block of src.split(/\n  \{\n/).slice(1)) {
   if (!id) continue;
   const keyArt = block.match(/keyArt: 'scryfall-art:([^:]+):([a-z0-9]+)'/);
   const cards = [];
-  const re = /\{ name: '((?:[^'\\]|\\.)*)'(?:, set: '([a-z0-9]+)')?(?:, rarity: '(\w+)')?[^}]*\}/g;
-  for (let m; (m = re.exec(block)); ) cards.push({ name: m[1].replace(/\\'/g, "'"), set: m[2], rarity: m[3] });
+  const re =
+    /\{ name: '((?:[^'\\]|\\.)*)'(?:, set: '([a-z0-9]+)')?(?:, collectorNumber: '([^']+)')?(?:, rarity: '(\w+)')?[^}]*\}/g;
+  for (let m; (m = re.exec(block)); )
+    cards.push({ name: m[1].replace(/\\'/g, "'"), set: m[2], collectorNumber: m[3], rarity: m[4] });
   packs.push({ id, keyArt: keyArt ? { name: keyArt[1], set: keyArt[2] } : null, cards });
+}
+
+/** Mirrors cardIdentifier() in src/data/scryfall.ts. */
+const identifier = (c) =>
+  c.set && c.collectorNumber
+    ? { set: c.set, collector_number: c.collectorNumber }
+    : c.set
+      ? { name: c.name, set: c.set }
+      : { name: c.name };
+
+/**
+ * Mirrors matchCard() in src/data/scryfall.ts — matched the way it was asked
+ * for, with a prefix pass for double-faced names like "Oko, Lorwyn Liege // …".
+ */
+function match(data, c) {
+  if (c.set && c.collectorNumber) {
+    return data.find((d) => d.set === c.set && d.collector_number === c.collectorNumber);
+  }
+  const name = c.name.toLowerCase();
+  return (
+    data.find((d) => d.name.toLowerCase() === name) ??
+    data.find((d) => d.name.toLowerCase().startsWith(name))
+  );
 }
 
 let hardFailures = 0;
@@ -35,7 +60,7 @@ for (const p of packs) {
   const res = await fetch('https://api.scryfall.com/cards/collection', {
     method: 'POST',
     headers: HDRS,
-    body: JSON.stringify({ identifiers: p.cards.map((c) => (c.set ? { name: c.name, set: c.set } : { name: c.name })) }),
+    body: JSON.stringify({ identifiers: p.cards.map(identifier) }),
   });
   if (!res.ok) {
     console.error(`${p.id}: Scryfall HTTP ${res.status}`);
@@ -43,22 +68,23 @@ for (const p of packs) {
     continue;
   }
   const json = await res.json();
-  const found = new Map(json.data.map((c) => [c.name.toLowerCase(), c]));
   console.log(`\n=== ${p.id} — ${json.data.length}/${p.cards.length} resolved ===`);
   for (const nf of json.not_found ?? []) {
     console.log('  ❌ NOT FOUND:', JSON.stringify(nf));
     hardFailures++;
   }
   for (const c of p.cards) {
-    // Mirror the runtime lookup in scryfall.ts: exact match, then prefix
-    // (covers double-faced names like "Oko, Lorwyn Liege // …").
-    const hit =
-      found.get(c.name.toLowerCase()) ??
-      json.data.find((d) => d.name.toLowerCase().startsWith(c.name.toLowerCase()));
+    const hit = match(json.data, c);
     if (!hit) continue;
     const uris = hit.image_uris ?? hit.card_faces?.[0]?.image_uris;
     if (!uris?.large) {
       console.log(`  ❌ ${c.name}: no large image`);
+      hardFailures++;
+    }
+    // A collector-number pin exists to select a treatment, so a printing whose
+    // name doesn't match the ref means the pin points at the wrong card.
+    if (c.collectorNumber && !hit.name.toLowerCase().startsWith(c.name.toLowerCase())) {
+      console.log(`  ❌ ${c.set} ${c.collectorNumber}: expected "${c.name}", got "${hit.name}"`);
       hardFailures++;
     }
     if (c.rarity && hit.rarity !== c.rarity) {

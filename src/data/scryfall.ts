@@ -1,6 +1,7 @@
-import type { CardData, PackDefinition } from './types';
+import type { CardData, PackCardRef, PackDefinition } from './types';
 import { mockCardsFor, mockCardBack, mockKeyArt } from './mock';
 import { fetchSetPool, generateBooster, imageUris, type ScryfallCard } from './booster';
+import { artBoxFor } from './artBox';
 
 /**
  * Thin Scryfall client.
@@ -46,6 +47,16 @@ function toCardData(hit: ScryfallCard, foil: boolean, uris: Record<string, strin
     imageLarge: uris.large,
     imageNormal: uris.normal ?? uris.large,
     foil,
+    artBox: artBoxFor({
+      layout: hit.layout,
+      frame: hit.frame,
+      frameEffects: hit.frame_effects,
+      borderColor: hit.border_color,
+      fullArt: hit.full_art,
+      // Double-faced cards carry the type line per face; the image we show is
+      // the front, so that's the face the art window belongs to.
+      typeLine: hit.card_faces?.[0]?.type_line ?? hit.type_line,
+    }),
   };
 }
 
@@ -74,18 +85,13 @@ async function fetchCuratedCards(pack: PackDefinition): Promise<CardData[]> {
     const res = await fetch(`${API}/cards/collection`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        identifiers: pack.cards.map((c) => (c.set ? { name: c.name, set: c.set } : { name: c.name })),
-      }),
+      body: JSON.stringify({ identifiers: pack.cards.map(cardIdentifier) }),
     });
     if (!res.ok) throw new Error(`Scryfall ${res.status}`);
     const json = (await res.json()) as { data: ScryfallCard[]; not_found?: unknown[] };
-    const byName = new Map(json.data.map((c) => [c.name.toLowerCase(), c] as const));
     const cards: CardData[] = [];
     for (const ref of pack.cards) {
-      const hit =
-        byName.get(ref.name.toLowerCase()) ??
-        json.data.find((c) => c.name.toLowerCase().startsWith(ref.name.toLowerCase()));
+      const hit = matchCard(json.data, ref);
       if (!hit) continue;
       const uris = imageUris(hit);
       if (!uris?.large) continue;
@@ -104,6 +110,33 @@ async function fetchCuratedCards(pack: PackDefinition): Promise<CardData[]> {
     console.warn('[scryfall] falling back to mock cards:', err);
     return mockCardsFor(pack);
   }
+}
+
+/**
+ * Scryfall `/cards/collection` identifier for one pack ref. A collector number
+ * pins the exact printing — the only way to ask for a *treatment* (showcase,
+ * borderless, extended art), since every treatment shares the card's name.
+ */
+function cardIdentifier(ref: PackCardRef): Record<string, string> {
+  if (ref.set && ref.collectorNumber) return { set: ref.set, collector_number: ref.collectorNumber };
+  return ref.set ? { name: ref.name, set: ref.set } : { name: ref.name };
+}
+
+/**
+ * Find a ref's card in the collection response. Matched the same way it was
+ * asked for, so a pack listing two treatments of one card doesn't hand both
+ * refs the same printing; the prefix pass covers double-faced names like
+ * "Oko, Lorwyn Liege // …".
+ */
+function matchCard(data: ScryfallCard[], ref: PackCardRef): ScryfallCard | undefined {
+  if (ref.set && ref.collectorNumber) {
+    return data.find((c) => c.set === ref.set && c.collector_number === ref.collectorNumber);
+  }
+  const name = ref.name.toLowerCase();
+  return (
+    data.find((c) => c.name.toLowerCase() === name) ??
+    data.find((c) => c.name.toLowerCase().startsWith(name))
+  );
 }
 
 /**

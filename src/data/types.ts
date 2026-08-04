@@ -1,5 +1,7 @@
 /** Core data model. Deliberately small so new packs/sets bolt on easily. */
 
+import type { ArtBox } from './artBox';
+
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'mythic';
 
 /**
@@ -22,6 +24,13 @@ export interface CardData {
   imageNormal: string;
   /** Whether the reveal should render this card with the holo/foil treatment. */
   foil: boolean;
+  /**
+   * Where the painting sits inside `imageLarge`, normalized 0..1. Derived from
+   * the printing's frame metadata (see artBox.ts) and used by the relief
+   * pipeline so the effect stays on the art instead of rippling the frame.
+   * Writable, so a card whose frame the classifier reads wrong can be pinned.
+   */
+  artBox: ArtBox;
 }
 
 export interface PackDefinition {
@@ -76,6 +85,14 @@ export interface PackCardRef {
   name: string;
   /** Pin a specific printing; otherwise Scryfall returns the default one. */
   set?: string;
+  /**
+   * Pin an exact printing within `set` by collector number. Needed whenever
+   * the *treatment* matters and not just the card — a set's showcase,
+   * borderless and extended-art versions all share one name, and resolving by
+   * name alone returns whichever printing Scryfall considers the default.
+   * Requires `set`.
+   */
+  collectorNumber?: string;
   /** Force the foil/holo treatment on this card. */
   foil?: boolean;
   /**

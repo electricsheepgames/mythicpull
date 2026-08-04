@@ -1,4 +1,5 @@
 import type { CardData, ColorHint, PackCardRef, PackDefinition, Rarity } from './types';
+import type { ArtBox } from './artBox';
 import { shuffle } from './booster';
 
 /**
@@ -9,6 +10,15 @@ import { shuffle } from './booster';
 
 const W = 672;
 const H = 936;
+
+/** Art window in the drawn card front, in canvas pixels. */
+const ART = { x: 44, y: 118, w: W - 88, h: 430 };
+
+/**
+ * Mock cards need no frame classifier — we draw them, so the art rect is
+ * known exactly. Normalized to match `CardData.artBox`.
+ */
+export const MOCK_ART_BOX: ArtBox = { x: ART.x / W, y: ART.y / H, w: ART.w / W, h: ART.h / H };
 
 interface MockSpec {
   color: [string, string];
@@ -127,10 +137,10 @@ function drawCardFront(name: string, spec: MockSpec, setCode: string): string {
   ctx.textBaseline = 'middle';
   ctx.fillText(fitText(ctx, name, W - 130), 62, 77);
   // art
-  drawArt(ctx, 44, 118, W - 88, 430, name, spec.color);
+  drawArt(ctx, ART.x, ART.y, ART.w, ART.h, name, spec.color);
   ctx.strokeStyle = 'rgba(0,0,0,0.55)';
   ctx.lineWidth = 3;
-  ctx.strokeRect(44, 118, W - 88, 430);
+  ctx.strokeRect(ART.x, ART.y, ART.w, ART.h);
   // type line
   ctx.fillStyle = 'rgba(20,16,18,0.82)';
   roundRect(ctx, 44, 560, W - 88, 54, 12);
@@ -236,6 +246,7 @@ export function mockCardsFor(pack: PackDefinition): CardData[] {
       imageLarge: img,
       imageNormal: img,
       foil: ref.foil ?? spec.rarity === 'mythic',
+      artBox: MOCK_ART_BOX,
     };
   });
 }
